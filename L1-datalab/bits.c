@@ -169,13 +169,12 @@ int byteSwap(int x, int n, int m) {
  * 3. build xx by shifting back and forth
  * 4. AND with mask and OR with changing bytes
  * */
-    int mask, xx, nn,mm;
-    nn = n<<3;
-    mm = m<<3;
+    int mask, xx, nn,mm, nx, mx;
+    nn = n << 3;  mm = m << 3;
+    nx = x >> nn; mx = x >> mm;
+    xx = ((mx&0xFF) << nn)|((nx&0xFF)<<mm);
     mask = (0xFF << nn) | (0xFF << mm);
-    xx = ((x  >> mm) << nn) | ((x  >> nn) << mm); 
-	printf("%X; %X\n", mask, xx);
-    return (x & ~mask) | (xx & mask);
+    return (x & ~mask) | xx ;
 }
 /* 
  * rotateRight - Rotate x to the right by n
@@ -192,11 +191,12 @@ int rotateRight(int x, int n) {
  * 3. shift by 31 - n to the right
  * 4. collect final result
  */
-  int mask, xx, m;
+  int mask, ksam, xx, m;
   mask = ~(~0 << n);
   xx = mask & x;
-  m = 0x1F & ~n;
-  return (x >> n) | (xx << m);
+  m = (0x1F & ~n)+1 ;
+  ksam = ~(~0 << m);
+  return ((x >> n)&ksam) | (xx << m);
 }
 /* 
  * logicalNeg - implement the ! operator using any of 
@@ -207,7 +207,11 @@ int rotateRight(int x, int n) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return (x & 1) ^ 1;
+  int xx,xxx,xxxx;
+  xx = x | (x >> 16);
+  xxx = xx | (xx >> 8);
+  xxxx = xxx | (xxx >> 4);
+  return x^(x);
 }
 /* 
  * TMax - return maximum two's complement integer 
@@ -216,7 +220,7 @@ int logicalNeg(int x) {
  *   Rating: 1
  */
 int tmax(void) {
-  return 2;
+  return ~(1<<31);
 }
 /* 
  * sign - return 1 if positive, 0 if zero, and -1 if negative
@@ -227,7 +231,7 @@ int tmax(void) {
  *  Rating: 2
  */
 int sign(int x) {
-    return 2;
+    return x>>31;
 }
 /* 
  * isGreater - if x > y  then return 1, else return 0 
