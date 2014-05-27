@@ -186,17 +186,20 @@ int byteSwap(int x, int n, int m) {
  */
 int rotateRight(int x, int n) {
 /*
- * 1. mask for first n bits
- * 2. retrieve first n bits
- * 3. shift by 31 - n to the right
- * 4. collect final result
+ * 1. mask for right n bits
+ * 2. find complementary shift (32-n)
+ * 3. retrieve right n bits
+ * 4. shift by n to the right AND
+ * 5. zero first m bits (in case the first bit is set)
+ * 6. shift to the left and collect the result
  */
-  int mask, ksam, xx, m;
+  int mask, y, m;
   mask = ~(~0 << n);
-  xx = mask & x;
-  m = (0x1F & ~n)+1 ;
-  ksam = ~(~0 << m);
-  return ((x >> n)&ksam) | (xx << m);
+  m = 0x1F & (~n + 1);
+  y = mask & x;
+  x = (x >> n) & ~(((1 << 31) >> n) << 1)  ;
+  y = y << m;
+  return x | y ;
 }
 /* 
  * logicalNeg - implement the ! operator using any of 
@@ -207,11 +210,10 @@ int rotateRight(int x, int n) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  int xx,xxx,xxxx;
-  xx = x | (x >> 16);
-  xxx = xx | (xx >> 8);
-  xxxx = xxx | (xxx >> 4);
-  return x^(x);
+  int neg, neg1;
+  neg = ~x;
+  neg1 = neg + 1; 
+  return (((neg^neg1)&neg ) >>31)&1 ;
 }
 /* 
  * TMax - return maximum two's complement integer 
