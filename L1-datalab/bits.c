@@ -233,7 +233,7 @@ int tmax(void) {
  *  Rating: 2
  */
 int sign(int x) {
-    return x>>31;
+    return ((x >> 31) | (!!x));
 }
 /* 
  * isGreater - if x > y  then return 1, else return 0 
