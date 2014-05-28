@@ -243,7 +243,12 @@ int sign(int x) {
  *   Rating: 3
  */
 int isGreater(int x, int y) {
-  return 2;
+  int xor, sum, same_sign, result;
+  xor = x^y;
+  same_sign = xor&y;
+  sum = ~x + 1 + y;
+  result = 1&(((sum & ~xor)|same_sign)>>31);
+  return result; 
 }
 /* 
  * subOK - Determine if can compute x-y without overflow
