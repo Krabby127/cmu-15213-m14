@@ -243,6 +243,7 @@ int sign(int x) {
  *   Rating: 3
  */
 int isGreater(int x, int y) {
+
   int xor, sum, same_sign, result;
   xor = x^y;
   same_sign = xor&y;
@@ -259,7 +260,16 @@ int isGreater(int x, int y) {
  *   Rating: 3
  */
 int subOK(int x, int y) {
-  return 2;
+  /* the only case when we have overflow is when the following two conditions are true
+ * 1. x and y are of different sign
+ * 2. substract and y have the same sign
+ */
+  int sub, samesign,samesub, result;
+  sub = x + 1 + ~y;
+  samesign = x^y;
+  samesub = ~(sub^y);
+  result = ~(samesign & samesub);
+  return 1&(result >> 31);
 }
 /*
  * satAdd - adds two numbers but when positive overflow occurs, returns
