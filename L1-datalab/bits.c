@@ -322,24 +322,28 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned float_half(unsigned uf) {
-  int S, E, M, maskE, maskM, maskS, tmp;
-  maskS = 1<<31;
-  maskE = 0xFF << 23;
-  maskM = ~(maskE | maskS);
+  int round, S, E, maskE, maskM, maskS,maskEM, maskSM, tmp;
+  round = !((uf&3)^3);
+  maskS = 0x80000000;
+  maskE = 0x7F800000;
+  maskM = 0x007FFFFF;
+  maskEM= 0x7FFFFFFF;
+  maskSM= 0x807FFFFF;
   E = uf&maskE;
+  S = uf&maskS;
   //Nan or Infinity
   if (E==0x7F800000) return uf;
   //E=1 - specialcase
   if (E==0x00800000){
-    return (maskS&uf) | (!((uf&3)^3) + ((uf&~maskS)>>1)) ;
+    return S | (round + ((uf & maskEM)>>1)) ;
   }
   //E=0 - denormalized
   if (E==0x00000000) {
     tmp = (uf&maskM)>>1;
-    return (tmp + !((uf&3)^3))|(uf&maskS);
+    return S | (tmp + round);
   }
   //normalized case
-  return (((E>>23)-1)<<23) | (uf & ~maskE);
+  return (((E>>23)-1)<<23) | (uf & maskSM);
 }
 /* 
  * float_f2i - Return bit-level equivalent of expression (int) f
