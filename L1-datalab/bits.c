@@ -243,7 +243,10 @@ int sign(int x) {
  *   Rating: 3
  */
 int isGreater(int x, int y) {
-
+/* 
+ * Either they have different sign 
+ * or we have an overflow when substracting
+ */
   int xor, sum, same_sign, result;
   xor = x^y;
   same_sign = xor&y;
@@ -282,7 +285,12 @@ int subOK(int x, int y) {
  *   Rating: 4
  */
 int satAdd(int x, int y) {
-  return 2;
+  int sum, overflow_mask, sum_, max;
+  sum = x+y;
+  overflow_mask = ((sum^x) & (sum^y))>>31; // all ones  if overflow , all zeros if not
+  sum_ = sum & ~overflow_mask;		   // all zeros if overflow , sum       if not
+  max = overflow_mask & ((1<<31) + (sum>>31)); // 10000... + either 0 or -1
+  return sum_ | max;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
