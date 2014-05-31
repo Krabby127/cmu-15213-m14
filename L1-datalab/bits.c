@@ -305,7 +305,10 @@ int satAdd(int x, int y) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  int y, x4,x3,x2,x1;
+  y = x;
+  x1 = (y&4) + (y&2) + (y&1); 
+  return x1 + 1;
 }
 /* 
  * float_half - Return bit-level equivalent of expression 0.5*f for
@@ -319,7 +322,24 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned float_half(unsigned uf) {
-  return 2;
+  int S, E, M, maskE, maskM, maskS, tmp;
+  maskS = 1<<31;
+  maskE = 0xFF << 23;
+  maskM = ~(maskE | maskS);
+  E = uf&maskE;
+  //Nan or Infinity
+  if (E==0x7F800000) return uf;
+  //E=1 - specialcase
+  if (E==0x00800000){
+    return (maskS&uf) | (!((uf&3)^3) + ((uf&~maskS)>>1)) ;
+  }
+  //E=0 - denormalized
+  if (E==0x00000000) {
+    tmp = (uf&maskM)>>1;
+    return (tmp + !((uf&3)^3))|(uf&maskS);
+  }
+  //normalized case
+  return (((E>>23)-1)<<23) | (uf & ~maskE);
 }
 /* 
  * float_f2i - Return bit-level equivalent of expression (int) f
