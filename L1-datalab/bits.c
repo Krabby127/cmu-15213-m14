@@ -389,5 +389,21 @@ unsigned float_half(unsigned uf) {
  *   Rating: 4
  */
 int float_f2i(unsigned uf) {
-  return 2;
+  int maskE, maskM, maskS, S, E, M, exp, shift, result;
+  maskE = 0x7F800000;
+  maskM = 0x007FFFFF;
+  maskS = 0x80000000;
+
+  E =  uf & maskE;
+  M = (uf & maskM) | 0x00800000;
+  S =  uf & maskS;
+
+  exp = -127 + (E>>23);
+  shift = -23 + exp; 
+  if (E==0x7F800000 || (shift>7))	return 0x80000000u;
+  if (exp < 0)		return 0;
+  if (shift<0)	result = M >> -shift;
+  else 		result = M <<  shift;
+  if (S==0x80000000) return ~result + 1;
+  else return result;
 }
