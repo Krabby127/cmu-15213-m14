@@ -9,5 +9,5 @@ touch $breaks
 echo "break getbuf" > $breaks
 echo "set step-mode on" >> $breaks
 echo "run -t nchepano < $raw" >>$breaks
-
+#echo "layout regs" >> $breaks
 gdb -x $breaks bufbomb
