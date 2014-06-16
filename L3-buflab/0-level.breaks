@@ -1,0 +1,3 @@
+break getbuf
+set step-mode on
+run -t nchepano < 0-level.raw
