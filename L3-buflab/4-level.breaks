@@ -1,0 +1,8 @@
+break getbufn
+break testn
+display/5i $eip
+display/4x $ebp
+display/4x $esp
+set step-mode on
+display/x ($ebp+4)
+run -n -t nchepano < 4-level.raw
