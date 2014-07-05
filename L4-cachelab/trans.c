@@ -24,20 +24,71 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 
 #define BLOCKSIZE 32
 char transpose_submit_desc[] = "Transpose submission";
+
+
+void transpose_square(int N, int A[N][N], int B[N][N], int step)
+{
+    for (int x = 0; x < N; x += step) {
+        int j_end = x + step;
+        for (int y = 0; y < N; y += step) {
+            int i_end = y + step;
+            for (int i = y; i < i_end; ++i) {
+                if( y == x ) {
+                    int diag, tmp;
+                    for (int j = x; j < j_end; ++j) {
+                        if (i == j) {
+                            diag = i;
+                            tmp = A[diag][diag];
+                        } else
+                            B[j][i] = A[i][j];
+                    }
+                    B[diag][diag] = tmp;
+                } else {
+                    for (int j = x; j < j_end; ++j) {
+                        if (i != j) 
+                            B[j][i] = A[i][j];
+                    }
+                }
+            }	
+        }
+    }
+}
+
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
     REQUIRES(M > 0);
     REQUIRES(N > 0);
 
-    for (int i = 0; i < N; i += BLOCKSIZE) {
-        for (int j = 0; j < M; j += BLOCKSIZE) {
-            for (int k = i, k_end = k+BLOCKSIZE; k< N && k < k_end; ++k) {
-                for (int l = j, l_end= j+BLOCKSIZE; l< M && l < l_end; ++l) {
-                    B[k][l] = A[l][k];
-                }
-            }
-        }
-    }
+    if( N == M ) {
+        transpose_square(N, A, B, ( N==32 ? 8: 4) );
+    } else {
+        const int step = 16;
+		for (int x = 0; x < M; x += step) {
+            int j_end = x + step;
+			for (int y = 0; y < N; y += step) {		
+                int i_end = y + step;
+				for (int i = y; i < i_end && i < N; ++i) {
+                    if( y == x ) {
+                        int tmp, diag;
+                        for (int j = x; j < j_end && j < M; ++j) {
+                            if (i == j) {
+                                diag = i;
+                                tmp = A[diag][diag];
+                            } else 
+                                B[j][i] = A[i][j];
+                        }
+						B[diag][diag] = tmp;
+                    } else {
+                        for (int j = x; j < j_end && j < M; ++j) {
+                            if (i != j)
+                                B[j][i] = A[i][j];
+                        }
+                    }
+				}
+			
+	 		}
+		}
+	}
 
     ENSURES(is_transpose(M, N, A, B));
 }
