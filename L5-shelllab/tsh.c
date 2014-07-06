@@ -46,7 +46,7 @@
 /* Global variables */
 extern char **environ;      /* defined in libc */
 char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
-int verbose = 1;            /* if true, print additional output */
+int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 
@@ -235,11 +235,12 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         if (!bg) {
             sigset_t mask2;
             sigemptyset(&mask2);
-            if(verbose) printf("waiting for fg: %s\n", cmdline);
             while (0 != fgpid(job_list))
             {
+
+                if(verbose) printf("suspended for %d\n",fgpid(job_list) );
                 sigsuspend(&mask2);
-                if (verbose) printf("done waitinf %s\n", cmdline);
+                if (verbose) printf("UNsuspended for %d\n", fgpid(job_list));
             }
         } else {
             printf("[%d] (%d) %s\n", ji, pid, cmdline);
@@ -458,6 +459,8 @@ sigchld_handler(int sig)
         } else if (WIFEXITED(status)) {
             if (verbose) printf("Exited\n");
             deletejob(job_list, retpid);
+        } else {
+            deletejob( job_list , retpid );
         }
     }
     return;
@@ -476,7 +479,7 @@ sigint_handler(int sig)
     if (verbose) printf("sigint for %d\n", pid);
     if(pid > 0) {
         /* we hvae some foreground job */
-        kill(-pid, SIGINT);
+        kill(-pid, sig);
     }
     /* else -- the signal will be caught be shell */
     return;
