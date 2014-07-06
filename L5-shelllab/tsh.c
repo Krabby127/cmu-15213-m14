@@ -46,7 +46,7 @@
 /* Global variables */
 extern char **environ;      /* defined in libc */
 char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
-int verbose = 0;            /* if true, print additional output */
+int verbose = 1;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 
@@ -213,22 +213,38 @@ pid_t Fork(void)
 
 void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 {
-    int status = 0;
     int ji = 0;
     pid_t pid = 0;  /* child pid */
+    /* avoid race condition with child */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+    /* fork the process */
     if ((pid = Fork()) == 0) {
+        /* child process */
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);
         if (execve(tok->argv[0], tok->argv, environ ) < 0) {
             printf("%s: Command not found. \n", tok->argv[0]);
-            exit(0);
+            exit(1);
         }
     } else {
+        /* parent process */
         ji = addjob(job_list, pid, bg ? BG : FG, cmdline);
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);
         if (!bg) {
-            waitpid(pid, &status, 0);
+            sigset_t mask2;
+            sigemptyset(&mask2);
+            if(verbose) printf("waiting for fg: %s\n", cmdline);
+            while (0 != fgpid(job_list))
+            {
+                sigsuspend(&mask2);
+                if (verbose) printf("done waitinf %s\n", cmdline);
+            }
         } else {
-            waitpid(pid, &status, WNOHANG);
             printf("[%d] (%d) %s\n", ji, pid, cmdline);
         }
+        if (verbose) printf("exit_run_child %s\n",cmdline);
     }
 }
 
@@ -246,6 +262,7 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 void 
 eval(char *cmdline) 
 {
+    if (verbose) printf("------------eval\n");
     int bg;              /* should the job run in bg or fg? */
     struct cmdline_tokens tok;
 
@@ -259,6 +276,7 @@ eval(char *cmdline)
         exec_builtin(&tok);
         return;
     }
+    if (verbose) printf("run child\n");
     run_child(cmdline, &tok, bg);
     return;
 }
@@ -428,11 +446,18 @@ sigchld_handler(int sig)
 {
     int retpid = 0;
     int status = 0;
-    if ((retpid = waitpid(-1, &status, 0)) > 0) {
-        if (WIFEXITED(status)) {
-            printf("child %d terminated ok, with exit stat=%d\n", retpid, WEXITSTATUS(status));
-        } else {
-            printf("child terminated abnormally\n");
+    int jid = 0;
+    while ((retpid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
+        if (verbose) {
+            printf("sigchld, pid=%d\n", retpid);
+        }
+        if(WIFSIGNALED(status)) {
+            jid = pid2jid(retpid);
+            printf("Job [%d] (%d) terminated by signal %d\n", jid, retpid, WTERMSIG(status));
+            deletejob(job_list, retpid);
+        } else if (WIFEXITED(status)) {
+            if (verbose) printf("Exited\n");
+            deletejob(job_list, retpid);
         }
     }
     return;
@@ -446,6 +471,14 @@ sigchld_handler(int sig)
 void 
 sigint_handler(int sig) 
 {
+    /* catch SIGINT and send to foreground job */
+    pid_t pid = fgpid(job_list);
+    if (verbose) printf("sigint for %d\n", pid);
+    if(pid > 0) {
+        /* we hvae some foreground job */
+        kill(-pid, SIGINT);
+    }
+    /* else -- the signal will be caught be shell */
     return;
 }
 
@@ -539,6 +572,7 @@ deletejob(struct job_t *job_list, pid_t pid)
 
     for (i = 0; i < MAXJOBS; i++) {
         if (job_list[i].pid == pid) {
+            if (verbose) printf("job %d is deleted\n", pid);
             clearjob(&job_list[i]);
             nextjid = maxjid(job_list)+1;
             return 1;
