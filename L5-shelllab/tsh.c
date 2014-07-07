@@ -181,8 +181,27 @@ main(int argc, char **argv)
     exit(0); /* control never reaches here */
 }
 
+/*
+ * Returns 0 if error
+ * positive value for pid and
+ * negative value for jid
+ */
+
+int get_first_arg(struct cmdline_tokens *tok){
+    
+    if (tok->argc < 2) return 0;
+
+    char* arg = tok->argv[1];
+    if (arg[0] == '%'){
+        return sscanf(argv[1], "%%%d", &jid);
+    } else {
+        return sscanf(argv[1], "%d", &jid);
+    }
+}
+
 void exec_builtin(struct cmdline_tokens *tok)
 {
+    //int pid;
     switch(tok->builtins) {
         case BUILTIN_QUIT:
             exit(0);
@@ -219,11 +238,15 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGCHLD);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTSTP);
     sigprocmask(SIG_BLOCK, &mask, NULL);
     /* fork the process */
     if ((pid = Fork()) == 0) {
         /* child process */
+        setpgid(0,0);
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
+
         if (execve(tok->argv[0], tok->argv, environ ) < 0) {
             printf("%s: Command not found. \n", tok->argv[0]);
             exit(1);
@@ -232,9 +255,9 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         /* parent process */
         ji = addjob(job_list, pid, bg ? BG : FG, cmdline);
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
+        sigset_t mask2;
+        sigemptyset(&mask2);
         if (!bg) {
-            sigset_t mask2;
-            sigemptyset(&mask2);
             while (0 != fgpid(job_list))
             {
 
@@ -450,17 +473,20 @@ sigchld_handler(int sig)
     int jid = 0;
     while ((retpid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
         if (verbose) {
-            printf("sigchld, pid=%d\n", retpid);
+            printf("sigchld_handler: pid=%d\n", retpid);
         }
+        jid = pid2jid(retpid);
         if(WIFSIGNALED(status)) {
-            jid = pid2jid(retpid);
             printf("Job [%d] (%d) terminated by signal %d\n", jid, retpid, WTERMSIG(status));
             deletejob(job_list, retpid);
         } else if (WIFEXITED(status)) {
             if (verbose) printf("Exited\n");
             deletejob(job_list, retpid);
+        } else if (WIFSTOPPED(status)){
+            getjobpid(job_list, retpid)->state = ST;
+            printf("Job [%d] (%d) stopped by signal %d\n", jid, retpid, WSTOPSIG(status));
         } else {
-            deletejob( job_list , retpid );
+            unix_error("unexpected result");
         }
     }
     return;
@@ -477,11 +503,12 @@ sigint_handler(int sig)
     /* catch SIGINT and send to foreground job */
     pid_t pid = fgpid(job_list);
     if (verbose) printf("sigint for %d\n", pid);
-    if(pid > 0) {
-        /* we hvae some foreground job */
-        kill(-pid, sig);
+    if (pid <= 0) {
+        if (verbose) printf("sigint_handler: no foreground job found");
+        return;
     }
-    /* else -- the signal will be caught be shell */
+    /* we have some foreground job */
+    kill(-pid, sig);
     return;
 }
 
@@ -493,6 +520,14 @@ sigint_handler(int sig)
 void 
 sigtstp_handler(int sig) 
 {
+    int pid = 0;
+    int jid = 0;
+    pid = fgpid(job_list);
+    jid = pid2jid(pid);
+    if (pid == 0) return;
+    if (kill(-pid, sig) < 0) {
+        unix_error("sigtstp_handler: can't send SIGSTP to the child");
+    }
     return;
 }
 
