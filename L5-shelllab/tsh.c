@@ -187,20 +187,33 @@ main(int argc, char **argv)
  * negative value for jid
  */
 
-int get_first_arg(struct cmdline_tokens *tok){
-    
-    if (tok->argc < 2) return 0;
-
+struct job_t* get_first_arg(struct cmdline_tokens *tok)
+{
+    struct job_t* job; 
+    if (tok->argc < 2) return NULL;
+    if (verbose) printf("get_first_arg: %s\n", tok->argv[1]);
     char* arg = tok->argv[1];
-    if (arg[0] == '%'){
-        return sscanf(argv[1], "%%%d", &jid);
-    } else {
-        return sscanf(argv[1], "%d", &jid);
+    if ('%' == arg[0])
+        job  = getjobjid(job_list, atoi(arg + 1 ));
+    else
+        job =  getjobpid(job_list, atoi(arg));
+    if (job && verbose) printf("arg parsed: %d", job->pid);
+    return job;
+}
+
+void Suspend() {
+    sigset_t mask;
+    sigemptyset(&mask);
+    while (0 != fgpid(job_list)){
+        if(verbose) printf("suspended for %d\n", fgpid(job_list) );
+            sigsuspend(&mask);
+        if (verbose) printf("UNsuspended for %d\n", fgpid(job_list));
     }
 }
 
 void exec_builtin(struct cmdline_tokens *tok)
 {
+    struct job_t* job;
     //int pid;
     switch(tok->builtins) {
         case BUILTIN_QUIT:
@@ -210,10 +223,17 @@ void exec_builtin(struct cmdline_tokens *tok)
             listjobs(job_list, 1);
         break;
         case BUILTIN_BG:
-            printf("BG\n");
+            job = get_first_arg(tok);
+            if (job == NULL) return;
+            kill(-(job->pid), SIGCONT);
+            job->state = BG;
         break;
         case BUILTIN_FG:
-            printf("FG\n");
+            job = get_first_arg(tok);
+            if (job == NULL) return;
+            Suspend();
+            job->state = FG;
+            kill(-(job->pid), SIGCONT);
         default:
             return;
 
