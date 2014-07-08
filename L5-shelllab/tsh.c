@@ -214,13 +214,13 @@ void Suspend() {
 void exec_builtin(struct cmdline_tokens *tok)
 {
     struct job_t* job;
-    //int pid;
     switch(tok->builtins) {
         case BUILTIN_QUIT:
             exit(0);
         break;
         case BUILTIN_JOBS:
-            listjobs(job_list, 1);
+            listjobs(job_list,
+                tok->outfile ? creat(tok->outfile, 0644) : 1);
         break;
         case BUILTIN_BG:
             job = get_first_arg(tok);
