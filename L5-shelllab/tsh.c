@@ -226,6 +226,7 @@ void exec_builtin(struct cmdline_tokens *tok)
             job = get_first_arg(tok);
             if (job == NULL) return;
             kill(-(job->pid), SIGCONT);
+            printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
             job->state = BG;
         break;
         case BUILTIN_FG:
@@ -241,19 +242,20 @@ void exec_builtin(struct cmdline_tokens *tok)
     return;
 }
 
-
 pid_t Fork(void)
 {
     pid_t pid = 0;
     if ((pid = fork()) < 0) 
-        unix_error("Fork error");
+    unix_error("Fork error");
     return pid;
 }
 
 void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 {
-    int ji = 0;
+    int ji = 0;     /* job id */
     pid_t pid = 0;  /* child pid */
+    int fd = 0;     /* file descriptor */
+
     /* avoid race condition with child */
     sigset_t mask;
     sigemptyset(&mask);
@@ -266,7 +268,18 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         /* child process */
         setpgid(0,0);
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
-
+        /* do redirections */
+        if (tok->infile) {
+            fd = open(tok->infile, O_RDONLY,0);
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+        }
+        if (tok->outfile) {
+            fd = creat(tok->outfile, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+        /* exec new program */
         if (execve(tok->argv[0], tok->argv, environ ) < 0) {
             printf("%s: Command not found. \n", tok->argv[0]);
             exit(1);
@@ -277,17 +290,8 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
         sigset_t mask2;
         sigemptyset(&mask2);
-        if (!bg) {
-            while (0 != fgpid(job_list))
-            {
-
-                if(verbose) printf("suspended for %d\n",fgpid(job_list) );
-                sigsuspend(&mask2);
-                if (verbose) printf("UNsuspended for %d\n", fgpid(job_list));
-            }
-        } else {
-            printf("[%d] (%d) %s\n", ji, pid, cmdline);
-        }
+        if (!bg) Suspend();
+        else     printf("[%d] (%d) %s\n", ji, pid, cmdline);
         if (verbose) printf("exit_run_child %s\n",cmdline);
     }
 }
