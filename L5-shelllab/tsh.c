@@ -182,9 +182,9 @@ main(int argc, char **argv)
 }
 
 /*
- * Returns 0 if error
- * positive value for pid and
- * negative value for jid
+ * Interpret the first argument is
+ * a job id OR process id and
+ * return job pointer or NULL if not found
  */
 
 struct job_t* get_first_arg(struct cmdline_tokens *tok)
@@ -201,6 +201,10 @@ struct job_t* get_first_arg(struct cmdline_tokens *tok)
     return job;
 }
 
+/*
+ * Wrapper for sigsuspend function.
+ */
+
 void Suspend() {
     sigset_t mask;
     sigemptyset(&mask);
@@ -210,6 +214,10 @@ void Suspend() {
         if (verbose) printf("UNsuspended for %d\n", fgpid(job_list));
     }
 }
+
+/*
+ * Exec for built-in functions.
+ */
 
 void exec_builtin(struct cmdline_tokens *tok)
 {
@@ -242,13 +250,24 @@ void exec_builtin(struct cmdline_tokens *tok)
     return;
 }
 
+/*
+ * Wrapper for fork() function
+ * with error handling
+ */
+
 pid_t Fork(void)
 {
     pid_t pid = 0;
     if ((pid = fork()) < 0) 
-    unix_error("Fork error");
+        unix_error("Fork error");
     return pid;
 }
+
+/*
+ * Runs a child program using fork and cmd line arguments
+ * takes care about waiting foreground job and
+ * runs job in background if bg is set
+ */
 
 void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 {
