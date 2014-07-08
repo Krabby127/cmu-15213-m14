@@ -271,7 +271,6 @@ pid_t Fork(void)
 
 void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 {
-    int ji = 0;     /* job id */
     pid_t pid = 0;  /* child pid */
     int fd = 0;     /* file descriptor */
 
@@ -305,12 +304,12 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         }
     } else {
         /* parent process */
-        ji = addjob(job_list, pid, bg ? BG : FG, cmdline);
+        addjob(job_list, pid, bg ? BG : FG, cmdline);
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
         sigset_t mask2;
         sigemptyset(&mask2);
         if (!bg) Suspend();
-        else     printf("[%d] (%d) %s\n", ji, pid, cmdline);
+        else     printf("[%d] (%d) %s\n", maxjid(job_list), pid, cmdline);
         if (verbose) printf("exit_run_child %s\n",cmdline);
     }
 }
