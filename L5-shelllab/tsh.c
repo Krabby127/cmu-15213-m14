@@ -205,10 +205,11 @@ struct job_t* get_first_arg(struct cmdline_tokens *tok)
  * Wrapper for sigsuspend function.
  */
 
-void Suspend() {
+void Suspend(struct job_t* job) {
     sigset_t mask;
     sigemptyset(&mask);
-    while (0 != fgpid(job_list)){
+    while (0 != fgpid(job_list) 
+        || ST != job->state){
         if(verbose) printf("suspended for %d\n", fgpid(job_list) );
             sigsuspend(&mask);
         if (verbose) printf("UNsuspended for %d\n", fgpid(job_list));
@@ -240,7 +241,7 @@ void exec_builtin(struct cmdline_tokens *tok)
         case BUILTIN_FG:
             job = get_first_arg(tok);
             if (job == NULL) return;
-            Suspend();
+            Suspend(job);
             job->state = FG;
             kill(-(job->pid), SIGCONT);
         default:
@@ -271,7 +272,6 @@ pid_t Fork(void)
 
 void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
 {
-    int ji = 0;     /* job id */
     pid_t pid = 0;  /* child pid */
     int fd = 0;     /* file descriptor */
 
@@ -305,12 +305,12 @@ void run_child(char* cmdline, struct cmdline_tokens *tok, int bg)
         }
     } else {
         /* parent process */
-        ji = addjob(job_list, pid, bg ? BG : FG, cmdline);
+        addjob(job_list, pid, bg ? BG : FG, cmdline);
         sigprocmask(SIG_UNBLOCK, &mask, NULL);
         sigset_t mask2;
         sigemptyset(&mask2);
-        if (!bg) Suspend();
-        else     printf("[%d] (%d) %s\n", ji, pid, cmdline);
+        if (!bg) Suspend(getjobpid(job_list, pid));
+        else     printf("[%d] (%d) %s\n", maxjid(job_list), pid, cmdline);
         if (verbose) printf("exit_run_child %s\n",cmdline);
     }
 }
@@ -526,8 +526,8 @@ sigchld_handler(int sig)
             if (verbose) printf("Exited\n");
             deletejob(job_list, retpid);
         } else if (WIFSTOPPED(status)){
-            getjobpid(job_list, retpid)->state = ST;
             printf("Job [%d] (%d) stopped by signal %d\n", jid, retpid, WSTOPSIG(status));
+            getjobpid(job_list, retpid)->state = ST;
         } else {
             unix_error("unexpected result");
         }
