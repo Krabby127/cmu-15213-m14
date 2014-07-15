@@ -59,6 +59,7 @@
 
 /* Word size in bytes */
 #define WSIZE       8
+#define DSIZE       16
 /* Memory allignmnet in bytes */
 #define ALIGNMENT   WSIZE       
 /* expand heap by this, in bytes */
@@ -119,7 +120,6 @@ static int in_heap(const void* p) {
 // Return the size of the given block bytes
 static inline size_t block_size(const char* block) {
     REQUIRES(block != NULL);
-    REQUIRES(in_heap(block));
     return get(block - WSIZE) & ~0x7;
 }
 
@@ -132,13 +132,13 @@ static inline size_t is_block_free(const char* block) {
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
-static inline void mark_block(char* block, int free, size_t size) {
+static inline void mark_block(char* block, size_t size, int free) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap    (block));
 
     size_t val = size | free;
     put(block - WSIZE, val);
-    put(block + size , val);
+    put(block + size - WSIZE , val);
 }
 
 
@@ -155,7 +155,7 @@ static inline char* block_next(char* const block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
-    return block + block_size(block) + WSIZE;
+    return block + block_size(block);
 }
 
 
@@ -188,10 +188,11 @@ int mm_init(void) {
 
     /* allignemnt, size: WSIZE */
     put(heap_listp, 0);
-
+    
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
-    mark_block(prologue, 2*WSIZE, 1);
+    put(prologue        , DSIZE|1);
+    put(prologue+ WSIZE , DSIZE|1);
 
     /* epilogue, size: WSIZE, alloced*/
     put(prologue + 2*WSIZE, 0x1);
@@ -199,6 +200,7 @@ int mm_init(void) {
     /* point to the footer of prologue */
     heap_listp += 2*WSIZE;
 
+    checkheap(1);  // Let's make sure the heap is ok!
     if (extend_heap(CHUNKSIZE/ WSIZE) == NULL)
         return -1;
     return 0;
@@ -251,7 +253,8 @@ static void *coalesce(void *bp){
 
 static void* find_fit(size_t size) {
     char* ptr = heap_listp + WSIZE;
-    while (ptr != NULL)  {
+    char* end = mem_heap_hi();
+    while (ptr < end)  {
         if (is_block_free(ptr) && block_size(ptr) >= size) break;
         ptr = block_next(ptr);
     }
@@ -352,10 +355,12 @@ void *calloc (size_t nmemb, size_t size) {
 
 // Returns 0 if no errors were found, otherwise returns the error
 int mm_checkheap(int verbose) {
-    char* ptr = heap_listp + WSIZE;
+    char* ptr = heap_listp; 
     size_t size = 0, header = 0, footer = 0;
     int free = 0;
-    while (ptr != NULL) {
+    char* end = mem_heap_hi();
+    while (ptr <  end) {
+        size = block_size(ptr);
         if (verbose) {
             printf("[%p+%zu,%s]->",ptr, size, free?"free":"allo");
         }
@@ -367,12 +372,11 @@ int mm_checkheap(int verbose) {
             printf("Block pointer %p isn't in heap\n", ptr);
             return 1;
         }
-        size = block_size(ptr);
         free = is_block_free(ptr);
         header = get(ptr - WSIZE);
-        footer = get(ptr + size);
+        footer = get(ptr + size - 2*WSIZE);
         if (header != footer) {
-            printf("Header and footer doesn't match: %p\n", ptr );
+            printf("Header and footer doesn't match: %zu vs %zu\n", header, footer);
             return 1;   
         }
         ptr = block_next(ptr);
