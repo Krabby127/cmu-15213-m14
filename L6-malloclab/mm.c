@@ -189,7 +189,7 @@ int mm_init(void) {
     if (heap_listp == (void *)-1) return -1;
 
     /* allignemnt, size: WSIZE */
-    put(heap_listp, 0);
+    put(heap_listp, WSIZE|ALLOCED);
     
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
@@ -229,21 +229,21 @@ static void *extend_heap(size_t size) {
 
 static void *coalesce(void *bp){
     dbg_printf("-coalesce-");
-    size_t prev_alloc = is_block_free(block_prev(bp));
-    size_t next_alloc = is_block_free(block_next(bp));
+    size_t prev_free = is_block_free(block_prev(bp));
+    size_t next_free = is_block_free(block_next(bp));
     size_t size = block_size(bp);
 
-    if (prev_alloc && next_alloc) {
+    if (!prev_free && !next_free) {
         checkheap(1);  // Let's make sure the heap is ok!
         return bp;
     }
 
-    else if (prev_alloc && !next_alloc) {
+    else if (!prev_free && next_free) {
         size += block_size(block_next(bp));
         mark_block(bp, size, FREE);
     }
 
-    else if (!prev_alloc && next_alloc) {
+    else if (prev_free && !next_free) {
         size += block_size(block_prev(bp));
         bp = block_prev(bp);
         mark_block(bp, size, FREE);
