@@ -148,7 +148,7 @@ static inline char* block_prev(char* const block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
-    return block - block_size(block);
+    return block - block_size(block - WSIZE);
 }
 
 // Return the header to the next block
@@ -223,7 +223,7 @@ static void *extend_heap(size_t size) {
     mark_block(new_block, size, FREE);
     put(block_next(new_block), 0x1);
     checkheap(1);  // Let's make sure the heap is ok!
-    return coalesce(bp);
+    return coalesce(new_block);
 
 }
 
@@ -318,8 +318,8 @@ void free (void *ptr) {
     char* block = (char*)ptr - WSIZE;
     size_t size = block_size(block);
     mark_block(block, size, FREE);
-    coalesce(block);
     checkheap(1);  // Let's make sure the heap is ok!
+    coalesce(block);
 }
 
 /*
