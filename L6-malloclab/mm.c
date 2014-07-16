@@ -2,14 +2,14 @@
  * mm.c
  * hbovik - Harry Bovik
  *
-            --> block ptr
-            | 
+  --> block ptr
+  | 
 --┌---------┬----------┬---------┬------
   |         |          |         |
   |  header |   data   |  footer | header ...
   | 8 bytes |          | 8 bytes |
 --┴---------┴----------┴---------┴-----
-
+  <------------block------------->
   <-------------size------------->
 
 
@@ -120,7 +120,8 @@ static int in_heap(const void* p) {
 // Return the size of the given block bytes
 static inline size_t block_size(const char* block) {
     REQUIRES(block != NULL);
-    return get(block - WSIZE) & ~0x7;
+    REQUIRES(in_heap(block));
+    return get(block) & ~0x7;
 }
 
 // Return true if the block is free, false otherwise
@@ -128,16 +129,16 @@ static inline size_t is_block_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
-    return !(get(block - WSIZE) & 0x1);
+    return !(get(block) & 0x1);
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
 static inline void mark_block(char* block, size_t size, int free) {
     REQUIRES(block != NULL);
-    REQUIRES(in_heap    (block));
+    REQUIRES(in_heap(block));
 
     size_t val = size | free;
-    put(block - WSIZE, val);
+    put(block, val);
     put(block + size - WSIZE , val);
 }
 
@@ -147,7 +148,7 @@ static inline char* block_prev(char* const block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
-    return block - block_size(block) - 2*WSIZE;
+    return block - block_size(block);
 }
 
 // Return the header to the next block
@@ -182,6 +183,7 @@ static void put_block(void* bp, size_t size);
  * Initialize: return -1 on error, 0 on success.
  */
 int mm_init(void) {
+    dbg_printf("\n-mm_init-");
     char* prologue;
     heap_listp = mem_sbrk(4*WSIZE);
     if (heap_listp == (void *)-1) return -1;
@@ -191,43 +193,48 @@ int mm_init(void) {
     
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
-    put(prologue        , DSIZE|1);
-    put(prologue+ WSIZE , DSIZE|1);
+    mark_block(prologue, 2*WSIZE, ALLOCED);
+    //put(prologue        , DSIZE|1);
+    //put(prologue+ WSIZE , DSIZE|1);
 
     /* epilogue, size: WSIZE, alloced*/
     put(prologue + 2*WSIZE, 0x1);
 
     /* point to the footer of prologue */
-    heap_listp += 2*WSIZE;
+    heap_listp = prologue;
 
     checkheap(1);  // Let's make sure the heap is ok!
-    if (extend_heap(CHUNKSIZE/ WSIZE) == NULL)
+    if (extend_heap(CHUNKSIZE) == NULL)
         return -1;
+    checkheap(1);  // Let's make sure the heap is ok!
     return 0;
 }
 
 /*
- * Extend heap by CHUNKSIZE
+ * Extend heap by size bytes
  */
-static void *extend_heap(size_t words) {
+static void *extend_heap(size_t size) {
+    dbg_printf("-extend_heap-");
     char *bp;
-    size_t size;
-
-    size = words*WSIZE; 
+    char *new_block;
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
-    mark_block(bp, size, FREE);
-    put(block_next(bp), 0x1);
+    new_block = bp - WSIZE; /*Overwrite epilogue*/
+    mark_block(new_block, size, FREE);
+    put(block_next(new_block), 0x1);
+    checkheap(1);  // Let's make sure the heap is ok!
     return coalesce(bp);
 
 }
 
 static void *coalesce(void *bp){
+    dbg_printf("-coalesce-");
     size_t prev_alloc = is_block_free(block_prev(bp));
     size_t next_alloc = is_block_free(block_next(bp));
     size_t size = block_size(bp);
 
     if (prev_alloc && next_alloc) {
+        checkheap(1);  // Let's make sure the heap is ok!
         return bp;
     }
 
@@ -248,23 +255,26 @@ static void *coalesce(void *bp){
         bp = block_prev(bp);
         mark_block(bp, size, FREE);
     }
+    checkheap(1);  // Let's make sure the heap is ok!
     return bp;
 }
 
 static void* find_fit(size_t size) {
-    char* ptr = heap_listp + WSIZE;
-    char* end = mem_heap_hi();
-    while (ptr < end)  {
-        if (is_block_free(ptr) && block_size(ptr) >= size) break;
+    char* ptr = heap_listp;
+    size_t bsize = block_size(ptr);
+    while (bsize != 0)  {
+        if (is_block_free(ptr) && bsize >= size) break;
         ptr = block_next(ptr);
+        bsize = block_size(ptr);
     }
     return ptr;
 }
 
 static void put_block(void* bp, size_t size){
+    dbg_printf("-put_block(%zu)-", size);
     size_t old_size = block_size(bp);
     if (size < old_size) {
-        char* free = (char*)bp + size + WSIZE;
+        char* free = (char*)bp + size;
         mark_block(free, old_size - size, FREE);
     } 
     mark_block(bp, size, ALLOCED);
@@ -274,6 +284,7 @@ static void put_block(void* bp, size_t size){
  * malloc
  */
 void *malloc (size_t size) {
+    dbg_printf("-malloc(%zu)-", size);
     checkheap(1);  // Let's make sure the heap is ok!
     size_t asize;
     size_t extendsize;
@@ -289,24 +300,25 @@ void *malloc (size_t size) {
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {
         put_block(bp, asize);
-        return bp;
+        return bp + WSIZE;
     }
 
     extendsize = MAX(asize, CHUNKSIZE);
-    if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
+    if ((bp = extend_heap(extendsize)) == NULL)
         return NULL;
     put_block(bp, asize);
-    checkheap(1);  // Let's make sure the heap is ok!
-    return bp;
+    return bp + WSIZE;
 }
 
 /*
  * free
  */
-void free (void *bp) {
-    size_t size = block_size(bp);
-    mark_block(bp, size, FREE);
-    coalesce(bp);
+void free (void *ptr) {
+    dbg_printf("-free-");
+    char* block = (char*)ptr - WSIZE;
+    size_t size = block_size(block);
+    mark_block(block, size, FREE);
+    coalesce(block);
     checkheap(1);  // Let's make sure the heap is ok!
 }
 
@@ -314,6 +326,7 @@ void free (void *bp) {
  * realloc - you may want to look at mm-naive.c
  */
 void *realloc(void *oldptr, size_t size) {
+    dbg_printf("-realloc-");
     size_t oldsize;
     void *newptr;
 
@@ -345,6 +358,7 @@ void *realloc(void *oldptr, size_t size) {
  * calloc - you may want to look at mm-naive.c
  */
 void *calloc (size_t nmemb, size_t size) {
+    dbg_printf("-calloc-");
     size_t bytes = nmemb * size;
     void* newptr;
     newptr = malloc(bytes);
@@ -355,15 +369,14 @@ void *calloc (size_t nmemb, size_t size) {
 
 // Returns 0 if no errors were found, otherwise returns the error
 int mm_checkheap(int verbose) {
+    verbose = verbose;
     char* ptr = heap_listp; 
-    size_t size = 0, header = 0, footer = 0;
-    int free = 0;
-    char* end = mem_heap_hi();
-    while (ptr <  end) {
-        size = block_size(ptr);
-        if (verbose) {
-            printf("[%p+%zu,%s]->",ptr, size, free?"free":"allo");
-        }
+    size_t size = block_size(ptr);
+    size_t header = 0;
+    size_t footer = 0;
+    dbg_printf("\t");
+    while (size != 0) {
+        dbg_printf("[%p+%zu,%s]->", ptr, size, is_block_free(ptr)?"f":"a");
         if (!aligned(ptr)) {
             printf("Block pointer %p isn't aligned\n", ptr);
             return 1;
@@ -372,14 +385,15 @@ int mm_checkheap(int verbose) {
             printf("Block pointer %p isn't in heap\n", ptr);
             return 1;
         }
-        free = is_block_free(ptr);
-        header = get(ptr - WSIZE);
-        footer = get(ptr + size - 2*WSIZE);
+        header = get(ptr);
+        footer = get(ptr + size - WSIZE);
         if (header != footer) {
             printf("Header and footer doesn't match: %zu vs %zu\n", header, footer);
             return 1;   
         }
         ptr = block_next(ptr);
+        size = block_size(ptr);
     }
+    printf("OK\n");
     return 0;
 }
