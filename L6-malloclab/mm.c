@@ -314,6 +314,7 @@ void *malloc (size_t size) {
  * free
  */
 void free (void *ptr) {
+    if (ptr == NULL) return;
     dbg_printf("-free-");
     char* block = (char*)ptr - WSIZE;
     size_t size = block_size(block);
