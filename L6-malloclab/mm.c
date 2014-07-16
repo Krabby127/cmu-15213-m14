@@ -263,11 +263,11 @@ static void* find_fit(size_t size) {
     char* ptr = heap_listp;
     size_t bsize = block_size(ptr);
     while (bsize != 0)  {
-        if (is_block_free(ptr) && bsize >= size) break;
+        if (is_block_free(ptr) && bsize >= size) return ptr;
         ptr = block_next(ptr);
         bsize = block_size(ptr);
     }
-    return ptr;
+    return NULL;
 }
 
 static void put_block(void* bp, size_t size){
