@@ -1,14 +1,15 @@
 /*
  * mm.c
- * hbovik - Harry Bovik
+ * Nikita Chepanov
+ * nchepano@andrew.cmu.edu
  *
   --> block ptr
   | 
---┌---------┬----------┬---------┬------
+---------------------------------------
   |         |          |         |
   |  header |   data   |  footer | header ...
   | 8 bytes |          | 8 bytes |
---┴---------┴----------┴---------┴-----
+----------------------------------------
   <------------block------------->
   <-------------size------------->
 
@@ -133,7 +134,7 @@ static inline size_t is_block_free(const char* block) {
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
-static inline void mark_block(char* block, size_t size, int free) {
+static inline void mark_block(char* block, size_t size, uint64_t free) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
@@ -315,6 +316,7 @@ void *malloc (size_t size) {
  */
 void free (void *ptr) {
     if (ptr == NULL) return;
+    REQUIRES(in_heap(ptr));
     dbg_printf("-free-");
     char* block = (char*)ptr - WSIZE;
     size_t size = block_size(block);
@@ -346,7 +348,7 @@ void *realloc(void *oldptr, size_t size) {
         return 0;
     }
 
-    oldsize = block_size(oldptr);
+    oldsize = block_size(oldptr) - 2*WSIZE;
     if (size < oldsize) oldsize = size;
     memcpy(newptr, oldptr, oldsize);
 
