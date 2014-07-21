@@ -64,7 +64,7 @@
 /* Memory allignmnet in bytes */
 #define ALIGNMENT   WSIZE       
 /* expand heap by this, in bytes */
-#define CHUNKSIZE   (1<<12)
+#define CHUNKSIZE   (1024*128) 
 
 /* lower bit of header/footer */
 #define FREE        0
