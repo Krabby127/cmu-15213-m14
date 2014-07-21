@@ -64,17 +64,17 @@
 /* Memory allignmnet in bytes */
 #define ALIGNMENT   WSIZE       
 /* expand heap by this, in bytes */
-#define CHUNKSIZE   (1024*128) 
-
+#define CHUNKSIZE   (1024*32) 
+/* Block minimal size: header + next + prev + footer*/
+#define MINSIZE     (4*WSIZE)
 /* lower bit of header/footer */
 #define FREE        0
 #define ALLOCED     1
-
+/* get/put - cast to size_t and set/return value */
+#define PUT(ptr, val)   ((*(size_t*)(ptr)) = val)
+#define GET(ptr)        (*(size_t*)(ptr))
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-
-/* cast pointer to size_t* */
-#define PTR(p) ((size_t*)(p))
 
 /* max value */
 #define MAX(x, y)   ((x) > (y) ? (x) : (y))
@@ -84,15 +84,6 @@
  *  ----------------
  */
 
-// Get 8 bytes by the pointer
-static inline size_t get(const char* ptr) {
-    return *PTR(ptr);
-}
-
-// Set 8 bytes by the pointer
-static inline size_t put(char* ptr, size_t val) {
-    return *PTR(ptr) = val;
-}
 
 // Align p to a multiple of w bytes
 static inline void* align(const void const* p, unsigned char w) {
@@ -122,7 +113,7 @@ static int in_heap(const void* p) {
 static inline size_t block_size(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
-    return get(block) & ~0x7;
+    return GET(block) & ~0x7;
 }
 
 // Return true if the block is free, false otherwise
@@ -130,7 +121,22 @@ static inline size_t is_block_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
-    return !(get(block) & 0x1);
+    return !(GET(block) & 0x1);
+}
+
+// Get pointer to the next free block
+static inline char* next_free(const char* block) {
+    REQUIRES(block != NULL);
+    REQUIRES(in_heap(block));
+    return block + 2*WSIZE;
+}
+
+
+// Get pointer to the prev free block
+static inline char* prev_free(const char* block) {
+    REQUIRES(block != NULL);
+    REQUIRES(in_heap(block));
+    return block + WSIZE;
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
@@ -139,11 +145,21 @@ static inline void mark_block(char* block, size_t size, uint64_t free) {
     REQUIRES(in_heap(block));
 
     size_t val = size | free;
-    put(block, val);
-    put(block + size - WSIZE , val);
+    PUT(block, val);
+    PUT(block + size - WSIZE , val);
 }
 
+// For the current block set pointers to the next
+// Assuming the block header/footer are set
+static inline void mark_prev_free(char* block, void* prev){
+    PUT(block + WSIZE, prev);
+}
 
+// For the current block set pointers to the prev 
+// Assuming the block header/footer are set
+static inline void mark_next_free(char* block, void* next){
+    PUT(block + DSIZE, next);
+}
 // Return the header to the previous block
 static inline char* block_prev(char* const block) {
     REQUIRES(block != NULL);
@@ -170,8 +186,8 @@ static inline char* block_next(char* const block) {
 /*
  * Global vars
  */
-static char *heap_listp;
-
+static char* heap_listp;
+static char* free_list;
 /*
  * My helper function headers
  */
@@ -180,6 +196,8 @@ static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t bp);
 static void put_block(void* bp, size_t size);
+static void put_free_block(char* block);
+
 /*
  * Initialize: return -1 on error, 0 on success.
  */
@@ -195,10 +213,8 @@ int mm_init(void) {
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
     mark_block(prologue, 2*WSIZE, ALLOCED);
-    //put(prologue        , DSIZE|1);
-    //put(prologue+ WSIZE , DSIZE|1);
 
-    /* epilogue, size: WSIZE, alloced*/
+    /* epilogue, size: 0, alloced*/
     put(prologue + 2*WSIZE, 0x1);
 
     /* point to the footer of prologue */
@@ -220,31 +236,49 @@ static void *extend_heap(size_t size) {
     char *new_block;
     if ((long)(bp = mem_sbrk(size)) == -1)
         return NULL;
-    new_block = bp - WSIZE; /*Overwrite epilogue*/
+    /* Overwrite epilogue*/
+    new_block = bp - WSIZE; 
+    /* Mark new block with footer and header as free */
     mark_block(new_block, size, FREE);
+    /* Set epilogue */
     put(block_next(new_block), 0x1);
     checkheap(1);  // Let's make sure the heap is ok!
     return coalesce(new_block);
 
 }
 
+/*
+ * bp isassumed to be a new free block 
+ * and is currently not in the list, so
+ * while coalescing we need to put new 
+ * block to the free list
+ */
 static void *coalesce(void *bp){
     dbg_printf("-coalesce-");
-    size_t prev_free = is_block_free(block_prev(bp));
-    size_t next_free = is_block_free(block_next(bp));
+    char* b_next = block_next(bp);
+    char* b_prev = block_prev(bp);
+    size_t is_prev_free = is_block_free(b_prev);
+    size_t is_next_free = is_block_free(b_next);
     size_t size = block_size(bp);
 
-    if (!prev_free && !next_free) {
-        checkheap(1);  // Let's make sure the heap is ok!
+    if (!is_prev_free && !is_next_free) {
+        /* Add new block to the list as is */
+        add_free_block(new_block);
         return bp;
     }
 
-    else if (!prev_free && next_free) {
+    else if (!is_prev_free && is_next_free) {
+        /* Get link to the prev/next free blocks
+         * for physically next block
+         */
+        char* prev_next_free = prev_free(b_next);
+        char* next_next_free = next_free(b_next);
         size += block_size(block_next(bp));
         mark_block(bp, size, FREE);
+
     }
 
-    else if (prev_free && !next_free) {
+    else if (is_prev_free && !is_next_free) {
         size += block_size(block_prev(bp));
         bp = block_prev(bp);
         mark_block(bp, size, FREE);
@@ -281,6 +315,27 @@ static void put_block(void* bp, size_t size){
     mark_block(bp, size, ALLOCED);
     checkheap(1);  // Let's make sure the heap is ok!
 }
+
+// put the block to free list
+// add block to the beginning of the free list
+static  void put_free_block(char* block) {
+    char* root, next;
+    if (free_list == NULL) {
+        mark_next_free(block, NULL);
+        mark_prev_free(block, NULL);
+    } else {
+        next = next_free(free_list);
+        /* Set link from second element to new root*/
+        if (next != NULL) mark_prev_free(next, block);
+        /* Set link to the second element from new root */
+        mark_next_free(block, next);
+        /* Set link to prev element for the new root */
+        mark_prev_free(block, NULL);
+    }
+    /* Change root element */
+    free_list = block;
+}
+
 /*
  * malloc
  */
