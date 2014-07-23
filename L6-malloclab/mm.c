@@ -128,7 +128,7 @@ static inline size_t is_block_free(const char* block) {
 static inline char* next_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
-    return block + 2*WSIZE;
+    return (char*)(*(block + 2*WSIZE));
 }
 
 
@@ -136,7 +136,7 @@ static inline char* next_free(const char* block) {
 static inline char* prev_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
-    return block + WSIZE;
+    return (char*)(*(block + WSIZE));
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
@@ -187,7 +187,7 @@ static inline char* block_next(char* const block) {
  * Global vars
  */
 static char* heap_listp;
-static char* free_list;
+#define FREE_LIST (heap_listp - WSIZE)
 /*
  * My helper function headers
  */
@@ -208,7 +208,7 @@ int mm_init(void) {
     if (heap_listp == (void *)-1) return -1;
 
     /* allignemnt, size: WSIZE */
-    put(heap_listp, WSIZE|ALLOCED);
+    PUT(heap_listp, NULL); // free_list is here
     
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
@@ -263,44 +263,67 @@ static void *coalesce(void *bp){
 
     if (!is_prev_free && !is_next_free) {
         /* Add new block to the list as is */
-        add_free_block(new_block);
+        put_free_block(new_block);
         return bp;
     }
 
     else if (!is_prev_free && is_next_free) {
-        /* Get link to the prev/next free blocks
+        /* 
+         * Get link to the prev/next free blocks
          * for physically next block
          */
         char* prev_next_free = prev_free(b_next);
         char* next_next_free = next_free(b_next);
-        size += block_size(block_next(bp));
+        size += block_size(b_next);
         mark_block(bp, size, FREE);
+        put_free_block(bp);
+        // Wire next-next with prev-next
+        mark_next_free(prev_next_free, next_next_free);
+        mark_prev_free(next_next_free, prev_next_free);
 
     }
 
     else if (is_prev_free && !is_next_free) {
-        size += block_size(block_prev(bp));
-        bp = block_prev(bp);
-        mark_block(bp, size, FREE);
+        /*
+         Get pointer to prev and next free pointer relative to current
+         block prev pointer
+         */
+        char* prev_prev_free = prev_free(b_prev);
+        char* next_prev_free = next_free(b_prev);
+        // Add size of prev free block to add it to current block
+        size += block_size(b_prev);
+        mark_block(b_prev, size, FREE);
+        // Mark the whole block as free
+        put_free_block(b_prev);
+        // Wire prev-prev with next-prev
+        mark_next_free(prev_prev_free, next_prev_free);
+        mark_prev_free(next_prev_free, prev_prev_free);
     }
 
     else {
-        size += block_size(block_prev(bp)) + 
-            block_size(block_next(bp));
-        bp = block_prev(bp);
-        mark_block(bp, size, FREE);
+        char* prev_prev_free = prev_free(b_prev);
+        char* next_next_free = next_free(b_next);
+        char* next_prev_free = next_free(b_prev);
+        char* prev_next_free = prev_free(b_next);
+        size += block_size(b_prev) + block_size(b_next);
+        mark_block(b_prev, size, FREE);
+        put_free_block(b_prev);
+        mark_next_free(prev_prev_free, next_prev_free);
+        mark_next_free(prev_next_free, next_next_free);
+        mark_prev_free(next_prev_free, prev_prev_free);
+        mark_prev_free(next_next_free, prev_next_free);
     }
     checkheap(1);  // Let's make sure the heap is ok!
     return bp;
 }
 
 static void* find_fit(size_t size) {
-    char* ptr = heap_listp;
-    size_t bsize = block_size(ptr);
-    while (bsize != 0)  {
-        if (is_block_free(ptr) && bsize >= size) return ptr;
-        ptr = block_next(ptr);
+    char* ptr = *FREE_LIST;
+    size_t bsize;
+    while (ptr != NULL)  {
         bsize = block_size(ptr);
+        if (bsize >= size) return ptr;
+        ptr = next_free(ptr);
     }
     return NULL;
 }
@@ -320,6 +343,7 @@ static void put_block(void* bp, size_t size){
 // add block to the beginning of the free list
 static  void put_free_block(char* block) {
     char* root, next;
+    char* free_list = FREE_LIST;
     if (free_list == NULL) {
         mark_next_free(block, NULL);
         mark_prev_free(block, NULL);
@@ -333,7 +357,7 @@ static  void put_free_block(char* block) {
         mark_prev_free(block, NULL);
     }
     /* Change root element */
-    free_list = block;
+    PUT(FREE_LIST, block);
 }
 
 /*
@@ -434,7 +458,7 @@ int mm_checkheap(int verbose) {
     size_t footer = 0;
     dbg_printf("\t");
     while (size != 0) {
-        dbg_printf("[%p+%zu,%s]->", ptr, size, is_block_free(ptr)?"f":"a");
+        dbg_printf("[%p+%zu]->", ptr, size);
         if (!aligned(ptr)) {
             printf("Block pointer %p isn't aligned\n", ptr);
             return 1;
@@ -452,6 +476,24 @@ int mm_checkheap(int verbose) {
         ptr = block_next(ptr);
         size = block_size(ptr);
     }
-    printf("OK\n");
+    dbg_printf(" | FREE->");
+    ptr = FREE_LIST;
+    while (ptr != NULL) {
+        size = block_size(ptr);
+        dbg_printf("[%p+%zu]->", ptr, size);
+        
+        if (!aligned(ptr)) {
+            printf("Block pointer %p isn't aligned\n", ptr);
+            return 1;
+        }
+        if (!in_heap(ptr)) {
+            printf("Block pointer %p isn't in heap\n", ptr);
+            return 1;
+        }
+
+
+        ptr = next_free(ptr);
+    }
+    dbg_printf("OK\n");
     return 0;
 }
