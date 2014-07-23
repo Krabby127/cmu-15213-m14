@@ -128,7 +128,7 @@ static inline size_t is_block_free(const char* block) {
 static inline char* next_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
-    return (char*)(*(block + 2*WSIZE));
+    return (char*)GET(block + 2*WSIZE);
 }
 
 
@@ -136,7 +136,7 @@ static inline char* next_free(const char* block) {
 static inline char* prev_free(const char* block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
-    return (char*)(*(block + WSIZE));
+    return (char*)GET(block + WSIZE);
 }
 
 // Mark the given block as free(1)/alloced(0) by marking the header and footer.
@@ -152,13 +152,13 @@ static inline void mark_block(char* block, size_t size, uint64_t free) {
 // For the current block set pointers to the next
 // Assuming the block header/footer are set
 static inline void mark_prev_free(char* block, void* prev){
-    PUT(block + WSIZE, prev);
+    PUT(block + WSIZE, (size_t)prev);
 }
 
 // For the current block set pointers to the prev 
 // Assuming the block header/footer are set
 static inline void mark_next_free(char* block, void* next){
-    PUT(block + DSIZE, next);
+    PUT(block + DSIZE, (size_t)next);
 }
 // Return the header to the previous block
 static inline char* block_prev(char* const block) {
@@ -208,14 +208,14 @@ int mm_init(void) {
     if (heap_listp == (void *)-1) return -1;
 
     /* allignemnt, size: WSIZE */
-    PUT(heap_listp, NULL); // free_list is here
+    PUT(heap_listp, 0); // free_list is here
     
     /* put prologue, size: 2*WSIZE */
     prologue = heap_listp + WSIZE;
     mark_block(prologue, 2*WSIZE, ALLOCED);
 
     /* epilogue, size: 0, alloced*/
-    put(prologue + 2*WSIZE, 0x1);
+    PUT(prologue + 2*WSIZE, 0x1);
 
     /* point to the footer of prologue */
     heap_listp = prologue;
@@ -241,7 +241,7 @@ static void *extend_heap(size_t size) {
     /* Mark new block with footer and header as free */
     mark_block(new_block, size, FREE);
     /* Set epilogue */
-    put(block_next(new_block), 0x1);
+    PUT(block_next(new_block), 0x1);
     checkheap(1);  // Let's make sure the heap is ok!
     return coalesce(new_block);
 
@@ -263,7 +263,7 @@ static void *coalesce(void *bp){
 
     if (!is_prev_free && !is_next_free) {
         /* Add new block to the list as is */
-        put_free_block(new_block);
+        put_free_block(bp);
         return bp;
     }
 
@@ -318,7 +318,7 @@ static void *coalesce(void *bp){
 }
 
 static void* find_fit(size_t size) {
-    char* ptr = *FREE_LIST;
+    char* ptr = FREE_LIST;
     size_t bsize;
     while (ptr != NULL)  {
         bsize = block_size(ptr);
@@ -342,7 +342,7 @@ static void put_block(void* bp, size_t size){
 // put the block to free list
 // add block to the beginning of the free list
 static  void put_free_block(char* block) {
-    char* root, next;
+    char* next;
     char* free_list = FREE_LIST;
     if (free_list == NULL) {
         mark_next_free(block, NULL);
@@ -357,7 +357,7 @@ static  void put_free_block(char* block) {
         mark_prev_free(block, NULL);
     }
     /* Change root element */
-    PUT(FREE_LIST, block);
+    PUT(FREE_LIST, (size_t)block);
 }
 
 /*
@@ -467,8 +467,8 @@ int mm_checkheap(int verbose) {
             printf("Block pointer %p isn't in heap\n", ptr);
             return 1;
         }
-        header = get(ptr);
-        footer = get(ptr + size - WSIZE);
+        header = GET(ptr);
+        footer = GET(ptr + size - WSIZE);
         if (header != footer) {
             printf("Header and footer doesn't match: %zu vs %zu\n", header, footer);
             return 1;   
