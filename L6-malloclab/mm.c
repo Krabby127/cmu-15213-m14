@@ -278,8 +278,11 @@ static void *coalesce(void *bp){
         mark_block(bp, size, FREE);
         put_free_block(bp);
         // Wire next-next with prev-next
-        mark_next_free(prev_next_free, next_next_free);
-        mark_prev_free(next_next_free, prev_next_free);
+        if (prev_next_free != NULL)
+            mark_next_free(prev_next_free, next_next_free);
+        if (next_next_free != NULL)
+            mark_prev_free(next_next_free, prev_next_free);
+
 
     }
 
@@ -290,14 +293,19 @@ static void *coalesce(void *bp){
          */
         char* prev_prev_free = prev_free(b_prev);
         char* next_prev_free = next_free(b_prev);
+        char* free_list = (char*)GET(FREE_LIST);
         // Add size of prev free block to add it to current block
         size += block_size(b_prev);
         mark_block(b_prev, size, FREE);
         // Mark the whole block as free
         put_free_block(b_prev);
         // Wire prev-prev with next-prev
-        mark_next_free(prev_prev_free, next_prev_free);
-        mark_prev_free(next_prev_free, prev_prev_free);
+        if (prev_prev_free != NULL)
+            mark_next_free(prev_prev_free, next_prev_free);
+        if (prev_prev_free != NULL)
+            mark_prev_free(next_prev_free, prev_prev_free);
+        if (bp == free_list)
+            PUT(FREE_LIST, (size_t)b_prev);
     }
 
     else {
@@ -318,7 +326,7 @@ static void *coalesce(void *bp){
 }
 
 static void* find_fit(size_t size) {
-    char* ptr = FREE_LIST;
+    char* ptr = (char*)GET(FREE_LIST);
     size_t bsize;
     while (ptr != NULL)  {
         bsize = block_size(ptr);
@@ -333,7 +341,13 @@ static void put_block(void* bp, size_t size){
     size_t old_size = block_size(bp);
     if (size < old_size) {
         char* free = (char*)bp + size;
+        char* free_list = (char*)GET(FREE_LIST);
         mark_block(free, old_size - size, FREE);
+        mark_prev_free(free, prev_free(bp));
+        mark_next_free(free, next_free(bp));
+        if (free_list == bp){
+            PUT(FREE_LIST, (size_t)free);
+        }
     } 
     mark_block(bp, size, ALLOCED);
     checkheap(1);  // Let's make sure the heap is ok!
@@ -343,7 +357,7 @@ static void put_block(void* bp, size_t size){
 // add block to the beginning of the free list
 static  void put_free_block(char* block) {
     char* next;
-    char* free_list = FREE_LIST;
+    char* free_list = (char*)GET(FREE_LIST);
     if (free_list == NULL) {
         mark_next_free(block, NULL);
         mark_prev_free(block, NULL);
@@ -373,7 +387,7 @@ void *malloc (size_t size) {
         return NULL;
 
     if (size <= WSIZE)
-        asize = 3*WSIZE;
+        asize = MINSIZE;
     else
         asize = ALIGN(size + 2*WSIZE); 
 
@@ -458,7 +472,7 @@ int mm_checkheap(int verbose) {
     size_t footer = 0;
     dbg_printf("\t");
     while (size != 0) {
-        dbg_printf("[%p+%zu]->", ptr, size);
+        dbg_printf("[%p+%zu,%s]->", ptr, size, is_block_free(ptr)?"f":"a");
         if (!aligned(ptr)) {
             printf("Block pointer %p isn't aligned\n", ptr);
             return 1;
@@ -477,7 +491,7 @@ int mm_checkheap(int verbose) {
         size = block_size(ptr);
     }
     dbg_printf(" | FREE->");
-    ptr = FREE_LIST;
+    ptr = (char*)GET(FREE_LIST);
     while (ptr != NULL) {
         size = block_size(ptr);
         dbg_printf("[%p+%zu]->", ptr, size);
