@@ -197,6 +197,7 @@ static void *coalesce(void *bp);
 static void *find_fit(size_t bp);
 static void put_block(void* bp, size_t size);
 static void put_free_block(char* block);
+static void remove_free_block(char* block);
 
 /*
  * Initialize: return -1 on error, 0 on success.
@@ -266,60 +267,24 @@ static void *coalesce(void *bp){
         put_free_block(bp);
         return bp;
     }
-
     else if (!is_prev_free && is_next_free) {
-        /* 
-         * Get link to the prev/next free blocks
-         * for physically next block
-         */
-        char* prev_next_free = prev_free(b_next);
-        char* next_next_free = next_free(b_next);
+        remove_free_block(b_next);
         size += block_size(b_next);
         mark_block(bp, size, FREE);
         put_free_block(bp);
-        // Wire next-next with prev-next
-        if (prev_next_free != NULL)
-            mark_next_free(prev_next_free, next_next_free);
-        if (next_next_free != NULL)
-            mark_prev_free(next_next_free, prev_next_free);
-
-
     }
-
     else if (is_prev_free && !is_next_free) {
-        /*
-         Get pointer to prev and next free pointer relative to current
-         block prev pointer
-         */
-        char* prev_prev_free = prev_free(b_prev);
-        char* next_prev_free = next_free(b_prev);
-        char* free_list = (char*)GET(FREE_LIST);
-        // Add size of prev free block to add it to current block
+        remove_free_block(b_prev);
         size += block_size(b_prev);
         mark_block(b_prev, size, FREE);
-        // Mark the whole block as free
         put_free_block(b_prev);
-        // Wire prev-prev with next-prev
-        if (prev_prev_free != NULL)
-            mark_next_free(prev_prev_free, next_prev_free);
-        if (prev_prev_free != NULL)
-            mark_prev_free(next_prev_free, prev_prev_free);
-        if (bp == free_list)
-            PUT(FREE_LIST, (size_t)b_prev);
     }
-
     else {
-        char* prev_prev_free = prev_free(b_prev);
-        char* next_next_free = next_free(b_next);
-        char* next_prev_free = next_free(b_prev);
-        char* prev_next_free = prev_free(b_next);
+        remove_free_block(b_prev);
+        remove_free_block(b_next);
         size += block_size(b_prev) + block_size(b_next);
         mark_block(b_prev, size, FREE);
         put_free_block(b_prev);
-        mark_next_free(prev_prev_free, next_prev_free);
-        mark_next_free(prev_next_free, next_next_free);
-        mark_prev_free(next_prev_free, prev_prev_free);
-        mark_prev_free(next_next_free, prev_next_free);
     }
     checkheap(1);  // Let's make sure the heap is ok!
     return bp;
@@ -340,14 +305,16 @@ static void put_block(void* bp, size_t size){
     dbg_printf("-put_block(%zu)-", size);
     size_t old_size = block_size(bp);
     if (size < old_size) {
-        char* free = (char*)bp + size;
-        char* free_list = (char*)GET(FREE_LIST);
-        mark_block(free, old_size - size, FREE);
-        mark_prev_free(free, prev_free(bp));
-        mark_next_free(free, next_free(bp));
-        if (free_list == bp){
-            PUT(FREE_LIST, (size_t)free);
-        }
+        char* freeb = (char*)bp + size;
+        char* next = next_free(bp);
+        char* prev = prev_free(bp);
+        mark_block(freeb, old_size - size, FREE);
+        mark_prev_free(freeb, prev);
+        mark_next_free(freeb, next);
+        if (next != NULL)  mark_prev_free(next, freeb);
+        if (prev != NULL)  mark_next_free(prev, freeb);
+        if ((char*)GET(FREE_LIST) == bp)     PUT(FREE_LIST, (size_t)freeb);
+        
     } 
     mark_block(bp, size, ALLOCED);
     checkheap(1);  // Let's make sure the heap is ok!
@@ -356,22 +323,27 @@ static void put_block(void* bp, size_t size){
 // put the block to free list
 // add block to the beginning of the free list
 static  void put_free_block(char* block) {
-    char* next;
     char* free_list = (char*)GET(FREE_LIST);
     if (free_list == NULL) {
         mark_next_free(block, NULL);
         mark_prev_free(block, NULL);
     } else {
-        next = next_free(free_list);
-        /* Set link from second element to new root*/
-        if (next != NULL) mark_prev_free(next, block);
-        /* Set link to the second element from new root */
-        mark_next_free(block, next);
-        /* Set link to prev element for the new root */
+        mark_next_free(block, free_list);
+        mark_prev_free(free_list, block);
         mark_prev_free(block, NULL);
     }
     /* Change root element */
     PUT(FREE_LIST, (size_t)block);
+}
+
+static void remove_free_block(char* block) {
+    char* next = next_free(block);
+    char* prev = prev_free(block);
+
+    if (next != NULL)  mark_prev_free(next, prev);
+
+    if (prev != NULL)  mark_next_free(prev, next);
+    else  PUT(FREE_LIST, (size_t)next);
 }
 
 /*
