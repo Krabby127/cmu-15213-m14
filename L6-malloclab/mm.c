@@ -298,7 +298,7 @@ static void* find_fit(size_t size) {
     size_t bsize;
     while (ptr != NULL)  {
         bsize = block_size(ptr);
-        if (bsize > size) return ptr;
+        if (bsize - MINSIZE > size) return ptr;
         ptr = next_free(ptr);
     }
     return NULL;
