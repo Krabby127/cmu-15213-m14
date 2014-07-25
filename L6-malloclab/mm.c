@@ -272,12 +272,14 @@ static void *coalesce(void *bp){
         size += block_size(b_next);
         mark_block(bp, size, FREE);
         put_free_block(bp);
+        return bp;
     }
     else if (is_prev_free && !is_next_free) {
         remove_free_block(b_prev);
         size += block_size(b_prev);
         mark_block(b_prev, size, FREE);
         put_free_block(b_prev);
+        return b_prev;
     }
     else {
         remove_free_block(b_prev);
@@ -285,6 +287,7 @@ static void *coalesce(void *bp){
         size += block_size(b_prev) + block_size(b_next);
         mark_block(b_prev, size, FREE);
         put_free_block(b_prev);
+        return b_prev;
     }
     checkheap(1);  // Let's make sure the heap is ok!
     return bp;
