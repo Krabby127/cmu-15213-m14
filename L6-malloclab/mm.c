@@ -410,14 +410,19 @@ void *realloc(void *oldptr, size_t size) {
         return malloc(size);
     }
 
+    oldsize = block_size((char*)oldptr - WSIZE) - 2*WSIZE;
+    if (oldsize >= size) {
+        // We already have enough memory in this block
+        return oldptr;
+    }
+    // We don't have enough memory in this block
+    // Allocate new block for size
     newptr = malloc(size);
 
     if (!newptr) {
         return 0;
     }
 
-    oldsize = block_size(oldptr) - 2*WSIZE;
-    if (size < oldsize) oldsize = size;
     memcpy(newptr, oldptr, oldsize);
 
     free(oldptr);
