@@ -64,7 +64,7 @@
 /* Memory allignmnet in bytes */
 #define ALIGNMENT   WSIZE       
 /* expand heap by this, in bytes */
-#define CHUNKSIZE   (1024*32) 
+#define CHUNKSIZE   (1024*5) 
 /* Block minimal size: header + next + prev + footer*/
 #define MINSIZE     (4*WSIZE)
 /* lower bit of header/footer */
@@ -295,19 +295,20 @@ static void *coalesce(void *bp){
 
 static void* find_fit(size_t size) {
     char* ptr = (char*)GET(FREE_LIST);
+    char* bestptr = NULL;
     size_t bsize;
     while (ptr != NULL)  {
         bsize = block_size(ptr);
         if (bsize - MINSIZE > size) return ptr;
         ptr = next_free(ptr);
     }
-    return NULL;
+    return bestptr;
 }
 
 static void put_block(void* bp, size_t size){
     dbg_printf("-put_block(%zu)-", size);
     size_t old_size = block_size(bp);
-    if (size < old_size) {
+    if (size + MINSIZE < old_size) {
         char* freeb = (char*)bp + size;
         char* next = next_free(bp);
         char* prev = prev_free(bp);
@@ -317,9 +318,12 @@ static void put_block(void* bp, size_t size){
         if (next != NULL)  mark_prev_free(next, freeb);
         if (prev != NULL)  mark_next_free(prev, freeb);
         if ((char*)GET(FREE_LIST) == bp)     PUT(FREE_LIST, (size_t)freeb);
+        mark_block(bp, size, ALLOCED);
         
-    } 
-    mark_block(bp, size, ALLOCED);
+    } else { 
+        remove_free_block(bp);
+        mark_block(bp, old_size, ALLOCED);
+    }
     checkheap(1);  // Let's make sure the heap is ok!
 }
 
